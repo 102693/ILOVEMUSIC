@@ -39,7 +39,7 @@ void setup() {
 
   audio.speakerPin = SPEAKER_PIN;
   audio.quality(1);
-  audio.setVolume(5);
+  audio.setVolume(6);
 
   if (!SD.begin(SD_CS_PIN)) {
     while (true) {}
@@ -86,6 +86,7 @@ void startSession() {
   lastSampleMs = millis();
 
   audio.play("sound.wav");
+  audio.loop(true);
 }
 
 void stopSession() {
