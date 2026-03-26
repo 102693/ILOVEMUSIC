@@ -1,0 +1,52 @@
+#include "DFRobotDFPlayerMini.h"
+#include <SoftwareSerial.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+SoftwareSerial mySerial(10, 11);
+DFRobotDFPlayerMini myDFPlayer;
+
+#define ONE_WIRE_BUS 4
+#define BUTTON_PIN 2
+#define MAX_TEMP 55.0
+
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+bool playing = false;
+bool lastButton = HIGH;
+
+void setup() {
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  mySerial.begin(9600);
+  sensors.begin();
+  if (myDFPlayer.begin(mySerial)) {
+    myDFPlayer.volume(30);
+  }
+}
+
+void loop() {
+  bool btn = digitalRead(BUTTON_PIN);
+  if (btn == LOW && lastButton == HIGH) {
+    delay(50);
+    if (!playing) {
+      myDFPlayer.loop(1);
+      playing = true;
+    } else {
+      myDFPlayer.stop();
+      playing = false;
+    }
+  }
+  lastButton = btn;
+
+  static unsigned long lastTemp = 0;
+  if (millis() - lastTemp > 10000) {
+    sensors.requestTemperatures();
+    float t = sensors.getTempCByIndex(0);
+    if (t > MAX_TEMP) {
+      myDFPlayer.stop();
+      playing = false;
+    }
+    lastTemp = millis();
+  }
+}
