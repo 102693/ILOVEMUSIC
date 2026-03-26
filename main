@@ -1,52 +1,118 @@
-#include "DFRobotDFPlayerMini.h"
-#include <SoftwareSerial.h>
+#include <SPI.h>
+#include <SD.h>
+#include <TMRpcm.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
-SoftwareSerial mySerial(10, 11);
-DFRobotDFPlayerMini myDFPlayer;
+#define SD_CS_PIN     10
+#define BUTTON_PIN    2
+#define TEMP_PIN      4
+#define SPEAKER_PIN   9
 
-#define ONE_WIRE_BUS 4
-#define BUTTON_PIN 2
-#define MAX_TEMP 55.0
-
-OneWire oneWire(ONE_WIRE_BUS);
+TMRpcm audio;
+OneWire oneWire(TEMP_PIN);
 DallasTemperature sensors(&oneWire);
 
-bool playing = false;
-bool lastButton = HIGH;
+File logFile;
+
+bool running = false;
+
+bool lastButtonReading = HIGH;
+bool buttonState = HIGH;
+unsigned long lastDebounceTime = 0;
+const unsigned long debounceDelay = 50;
+
+unsigned long lastSampleMs = 0;
+unsigned long startMs = 0;
+
+void startSession();
+void stopSession();
+void writeTemperature();
 
 void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
-  mySerial.begin(9600);
+  pinMode(SD_CS_PIN, OUTPUT);
+  pinMode(SPEAKER_PIN, OUTPUT);
+
+  Serial.begin(9600);
   sensors.begin();
-  if (myDFPlayer.begin(mySerial)) {
-    myDFPlayer.volume(30);
+
+  audio.speakerPin = SPEAKER_PIN;
+  audio.quality(1);
+  audio.setVolume(5);
+
+  if (!SD.begin(SD_CS_PIN)) {
+    while (true) {}
   }
 }
 
 void loop() {
-  bool btn = digitalRead(BUTTON_PIN);
-  if (btn == LOW && lastButton == HIGH) {
-    delay(50);
-    if (!playing) {
-      myDFPlayer.loop(1);
-      playing = true;
-    } else {
-      myDFPlayer.stop();
-      playing = false;
+  int reading = digitalRead(BUTTON_PIN);
+
+  if (reading != lastButtonReading) {
+    lastDebounceTime = millis();
+    lastButtonReading = reading;
+  }
+
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    if (reading != buttonState) {
+      buttonState = reading;
+      if (buttonState == LOW) {
+        if (!running) startSession();
+        else stopSession();
+      }
     }
   }
-  lastButton = btn;
 
-  static unsigned long lastTemp = 0;
-  if (millis() - lastTemp > 10000) {
-    sensors.requestTemperatures();
-    float t = sensors.getTempCByIndex(0);
-    if (t > MAX_TEMP) {
-      myDFPlayer.stop();
-      playing = false;
-    }
-    lastTemp = millis();
+  if (running && (millis() - lastSampleMs >= 10000UL)) {
+    lastSampleMs = millis();
+    writeTemperature();
+  }
+}
+
+void startSession() {
+  logFile = SD.open("temp.csv", FILE_WRITE);
+  if (!logFile) {
+    return;
+  }
+
+  if (logFile.size() == 0) {
+    logFile.println("time_s,temp_c");
+    logFile.flush();
+  }
+
+  running = true;
+  startMs = millis();
+  lastSampleMs = millis();
+
+  audio.play("sound.wav");
+}
+
+void stopSession() {
+  audio.stopPlayback();
+
+  if (logFile) {
+    logFile.flush();
+    logFile.close();
+  }
+
+  running = false;
+}
+
+void writeTemperature() {
+  sensors.requestTemperatures();
+  float tempC = sensors.getTempCByIndex(0);
+
+  if (tempC == DEVICE_DISCONNECTED_C) {
+    return;
+  }
+
+  unsigned long t = (millis() - startMs) / 1000UL;
+
+  if (logFile) {
+    logFile.print(t);
+    logFile.print(',');
+    logFile.println(tempC, 2);
+    logFile.flush();
   }
 }
